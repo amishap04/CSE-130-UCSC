@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#define INPUT_BUFFER_SIZE 4096
+#define INPUT_BUFFER_SIZE  4096
 #define OUTPUT_BUFFER_SIZE 512
 
 // Function to print error messages and exit
@@ -26,16 +26,17 @@ void flushOutputBuffer(char *buffer, ssize_t *bufferLength) {
 
 // Function to process each file or stdin based on the delimiter
 void processInputFile(int fileDescriptor, char delimiterChar) {
-    char readBuffer[INPUT_BUFFER_SIZE]; 
-    char outputBuffer[OUTPUT_BUFFER_SIZE]; 
-    ssize_t bytesRead, outputBufferLength = 0; 
+    char readBuffer[INPUT_BUFFER_SIZE];
+    char outputBuffer[OUTPUT_BUFFER_SIZE];
+    ssize_t bytesRead, outputBufferLength = 0;
 
     while ((bytesRead = read(fileDescriptor, readBuffer, INPUT_BUFFER_SIZE)) > 0) {
         for (ssize_t i = 0; i < bytesRead; ++i) {
             if (outputBufferLength == OUTPUT_BUFFER_SIZE) {
                 flushOutputBuffer(outputBuffer, &outputBufferLength);
             }
-            outputBuffer[outputBufferLength++] = (readBuffer[i] == delimiterChar) ? '\n' : readBuffer[i];
+            outputBuffer[outputBufferLength++]
+                = (readBuffer[i] == delimiterChar) ? '\n' : readBuffer[i];
         }
     }
     flushOutputBuffer(outputBuffer, &outputBufferLength);
@@ -51,29 +52,29 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    char delimiterChar = argv[1][0]; 
+    char delimiterChar = argv[1][0];
     if (strlen(argv[1]) != 1) {
         fprintf(stderr, "Delimiter must be a single character.\n");
         return 1;
     }
 
     struct stat fileInfo;
-    int operationStatus = 0; 
+    int operationStatus = 0;
 
-    for (int argIndex = 2; argIndex < argc; ++argIndex) { 
+    for (int argIndex = 2; argIndex < argc; ++argIndex) {
         if (strcmp(argv[argIndex], "-") == 0) {
             processInputFile(STDIN_FILENO, delimiterChar);
-        } 
-	else {
+        } else {
             if (stat(argv[argIndex], &fileInfo) != 0 || !S_ISREG(fileInfo.st_mode)) {
-                fprintf(stderr, "Error: %s is not a regular file or does not exist\n", argv[argIndex]);
+                fprintf(
+                    stderr, "Error: %s is not a regular file or does not exist\n", argv[argIndex]);
                 operationStatus = 1;
                 continue;
             }
 
-            int fileDescriptor = open(argv[argIndex], O_RDONLY); 
-            
-	    if (fileDescriptor == -1) {
+            int fileDescriptor = open(argv[argIndex], O_RDONLY);
+
+            if (fileDescriptor == -1) {
                 print_error("open error");
             }
 
