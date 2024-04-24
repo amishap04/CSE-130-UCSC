@@ -27,9 +27,11 @@ int read_line_safely(int fd, char *buffer, int max_length, int require_newline) 
                 break;
             }
             buffer[pos++] = ch;
-        } else if (bytes == 0) {
+        } 
+	else if (bytes == 0) {
             break;
-        } else {
+        } 
+	else {
             handle_error("Operation Failed", 1);
         }
     }
@@ -66,7 +68,8 @@ int main(void) {
         if (!S_ISREG(statbuf.st_mode)) {
             if (S_ISDIR(statbuf.st_mode)) {
                 handle_error("Operation Failed", 1);
-            } else {
+            } 
+	    else {
                 handle_error("Invalid Command", 1);
             }
         }
@@ -92,6 +95,7 @@ int main(void) {
         }
         close(file_desc);
     }
+
     else if (!strcmp(cmd, "set")) {
         if (read_line_safely(STDIN_FILENO, path, sizeof(path), 1) <= 0) {
             handle_error("Invalid Command", 1);
@@ -103,7 +107,8 @@ int main(void) {
 
         int content_len = atoi(buffer), written_bytes = 0;
         file_desc = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        if (file_desc == -1) {
+        
+	if (file_desc == -1) {
             handle_error("Operation Failed", 1);
         }
 
@@ -118,15 +123,19 @@ int main(void) {
                 close(file_desc);
                 handle_error("Operation Failed", 1);
             }
+
             written_bytes += read_size;
         }
         close(file_desc);
         if (condition_to_print_ok()) {
             printf("OK\n");
         }
-    } else {
+    }
+
+    else {
         handle_error("Invalid Command", 1);
     }
+
     return 0;
 }
 
