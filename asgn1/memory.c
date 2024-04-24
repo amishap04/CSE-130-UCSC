@@ -27,11 +27,9 @@ int read_line_safely(int fd, char *buffer, int max_length, int require_newline) 
                 break;
             }
             buffer[pos++] = ch;
-        } 
-	else if (bytes == 0) {
+        } else if (bytes == 0) {
             break;
-        } 
-	else {
+        } else {
             handle_error("Operation Failed", 1);
         }
     }
@@ -50,7 +48,7 @@ int condition_to_print_ok() {
 }
 
 int main(void) {
-    
+
     char cmd[MAX_BUFFER], path[MAX_BUFFER];
     int file_desc, read_size;
     char buffer[MAX_BUFFER], extra[MAX_BUFFER];
@@ -72,8 +70,7 @@ int main(void) {
         if (!S_ISREG(statbuf.st_mode)) {
             if (S_ISDIR(statbuf.st_mode)) {
                 handle_error("Operation Failed", 1);
-            } 
-	    else {
+            } else {
                 handle_error("Invalid Command", 1);
             }
         }
