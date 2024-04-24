@@ -27,17 +27,21 @@ int read_line_safely(int fd, char *buffer, int max_length, int require_newline) 
                 break;
             }
             buffer[pos++] = ch;
-        } else if (bytes == 0) {
+        } 
+	else if (bytes == 0) {
             break;
-        } else {
+        } 
+	else {
             handle_error("Operation Failed", 1);
         }
     }
+
     buffer[pos] = '\0';
 
     if (require_newline && !newline_found && pos > 0) {
         return -1;
     }
+
     return pos;
 }
 
@@ -46,6 +50,7 @@ int condition_to_print_ok() {
 }
 
 int main(void) {
+    
     char cmd[MAX_BUFFER], path[MAX_BUFFER];
     int file_desc, read_size;
     char buffer[MAX_BUFFER], extra[MAX_BUFFER];
@@ -63,10 +68,12 @@ int main(void) {
         if (stat(path, &statbuf) != 0) {
             handle_error("Invalid Command", 1);
         }
+
         if (!S_ISREG(statbuf.st_mode)) {
             if (S_ISDIR(statbuf.st_mode)) {
                 handle_error("Operation Failed", 1);
-            } else {
+            } 
+	    else {
                 handle_error("Invalid Command", 1);
             }
         }
@@ -86,10 +93,12 @@ int main(void) {
                 handle_error("Write Error", 1);
             }
         }
+
         if (read_size < 0) {
             close(file_desc);
             handle_error("Operation Failed", 1);
         }
+
         close(file_desc);
     }
 
@@ -124,6 +133,7 @@ int main(void) {
 
             written_bytes += read_size;
         }
+
         close(file_desc);
         if (condition_to_print_ok()) {
             printf("OK\n");
