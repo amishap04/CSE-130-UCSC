@@ -15,6 +15,8 @@ typedef struct {
     int fd;
 } Listener_Socket;
 
+// starting listener code
+
 int listener_init(Listener_Socket *sock, int port) {
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
