@@ -79,12 +79,9 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
     // Check HTTP version compatibility
     if (strcmp(httpVersion, "HTTP/1.1") != 0) {
         if (strcmp(httpVersion, "HTTP/1.10") == 0 || strcmp(httpVersion, "HTTP/1.0") == 0) {
-            fprintf(stderr, "Invalid HTTP version\n");
             write_n_bytes(clientSocket,
                 "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
-        }
-
-        else {
+        } else {
             write_n_bytes(clientSocket,
                 "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\n\r\nVersion Not "
                 "Supported\n",
@@ -94,29 +91,22 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
     }
 
     // Determine the type of HTTP method and process accordingly
-    if (strcmp(httpMethod, "GET") == 0 || strcmp(httpMethod, "PUT") == 0) {
-        if (strcmp(httpMethod, "GET") == 0) {
-            handleGETRequest(clientSocket, uri);
+    if (strcmp(httpMethod, "GET") == 0) {
+        handleGETRequest(clientSocket, uri);
+    } else if (strcmp(httpMethod, "PUT") == 0) {
+        char *contentLengthStr = strstr(requestBuffer, "Content-Length: ");
+        if (!contentLengthStr) {
+            write_n_bytes(clientSocket,
+                "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
+            return;
         }
-
-        else {
-            char *contentLengthStr = strstr(requestBuffer, "Content-Length: ");
-            if (!contentLengthStr) {
-                fprintf(stderr, "Missing Content-Length header\n");
-                write_n_bytes(clientSocket,
-                    "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
-                return;
-            }
-
-            int contentLength = 0;
-            sscanf(contentLengthStr, "Content-Length: %d", &contentLength);
-            handlePUTRequest(clientSocket, uri, contentLength);
-        }
-    }
-
-    else {
+        int contentLength = 0;
+        sscanf(contentLengthStr, "Content-Length: %d", &contentLength);
+        handlePUTRequest(clientSocket, uri, contentLength);
+    } else {
+        // Respond with "400 Bad Request" for unsupported methods
         write_n_bytes(clientSocket,
-            "HTTP/1.1 501 Not Implemented\r\nContent-Length: 16\r\n\r\nNot Implemented\n", 68);
+            "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
     }
 }
 
