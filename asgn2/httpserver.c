@@ -12,7 +12,7 @@
 #include "asgn2_helper_funcs.h"
 #include <sys/time.h>
 
-#define BUFFER_SIZE 4096  // Define a constant for buffer size
+#define BUFFER_SIZE 4096 // Define a constant for buffer size
 
 // Declaration of functions used
 void handleGETRequest(int clientSocket, const char *resourceURI);
@@ -24,16 +24,16 @@ ssize_t my_pass_n_bytes(int sourceFd, int destinationFd, size_t bytesToPass);
 // Function to get current time in milliseconds
 int64_t getCurrentTimeMillis() {
     struct timeval currentTime;
-    gettimeofday(&currentTime, NULL);  // Get the current time
+    gettimeofday(&currentTime, NULL); // Get the current time
     return (int64_t) (currentTime.tv_sec) * 1000 + (currentTime.tv_usec / 1000);
 }
 
 // Function to initialize the listener for incoming connections
 int initializeListener(Listener_Socket *listenerSocket, int listeningPort) {
-    struct sockaddr_in serverAddress;  // Address structure to hold server's address
+    struct sockaddr_in serverAddress; // Address structure to hold server's address
     serverAddress.sin_family = AF_INET;
-    serverAddress.sin_addr.s_addr = INADDR_ANY;  // Listen on any network interface
-    serverAddress.sin_port = htons(listeningPort);  // Convert port number to network byte order
+    serverAddress.sin_addr.s_addr = INADDR_ANY; // Listen on any network interface
+    serverAddress.sin_port = htons(listeningPort); // Convert port number to network byte order
 
     printf("%ld start", getCurrentTimeMillis());
 
@@ -69,8 +69,8 @@ int acceptConnection(Listener_Socket *listenerSocket) {
 // Function to get the length of a file
 ssize_t getFileLength(const char *filePath) {
     struct stat fileInfo;
-    stat(filePath, &fileInfo);  // Get file statistics
-    return fileInfo.st_size;  // Return the size of the file
+    stat(filePath, &fileInfo); // Get file statistics
+    return fileInfo.st_size; // Return the size of the file
 }
 
 // Function to process HTTP requests
@@ -84,7 +84,7 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
                 "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
         }
 
-	else {
+        else {
             write_n_bytes(clientSocket,
                 "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\n\r\nVersion Not "
                 "Supported\n",
@@ -97,9 +97,9 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
     if (strcmp(httpMethod, "GET") == 0 || strcmp(httpMethod, "PUT") == 0) {
         if (strcmp(httpMethod, "GET") == 0) {
             handleGETRequest(clientSocket, uri);
-        } 
-	
-	else {
+        }
+
+        else {
             char *contentLengthStr = strstr(requestBuffer, "Content-Length: ");
             if (!contentLengthStr) {
                 fprintf(stderr, "Missing Content-Length header\n");
@@ -107,13 +107,13 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
                     "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
                 return;
             }
-        
-	    int contentLength = 0;
+
+            int contentLength = 0;
             sscanf(contentLengthStr, "Content-Length: %d", &contentLength);
             handlePUTRequest(clientSocket, uri, contentLength);
         }
-    } 
-    
+    }
+
     else {
         write_n_bytes(clientSocket,
             "HTTP/1.1 501 Not Implemented\r\nContent-Length: 16\r\n\r\nNot Implemented\n", 68);
@@ -126,11 +126,11 @@ int validateHeaders(const char *buffer) {
     while ((pointer = strstr(pointer, "\r\n")) != NULL) {
         pointer += 2;
         if (strncmp(pointer, "\r\n", 2) == 0)
-            break;  // End of headers
+            break; // End of headers
 
         const char *colonPosition = strchr(pointer, ':');
         if (colonPosition == NULL) {
-            return -1;  // Header is invalid if no colon found
+            return -1; // Header is invalid if no colon found
         }
     }
     return 0;
@@ -146,33 +146,30 @@ ssize_t readUntilDelimiter(int fileDescriptor, char buffer[], size_t maxBytes) {
         bytesRead = read(fileDescriptor, bufferPointer, 1);
         if (bytesRead == -1ul) {
             if (errno == EINTR) {
-                bytesRead = 0;  // Ignore interrupts
-            } 
-	    else {
-                return -1;  // Return error
+                bytesRead = 0; // Ignore interrupts
+            } else {
+                return -1; // Return error
             }
-        } 
-	else if (bytesRead == 0) {
-            break;  // End of file
-        } 
-	else {
+        } else if (bytesRead == 0) {
+            break; // End of file
+        } else {
             totalBytesRead += bytesRead;
             bufferPointer += bytesRead;
             if (totalBytesRead >= 2) {
                 if ((memcmp(bufferPointer - 2, "\n\n", 2) == 0)
                     || (memcmp(bufferPointer - 2, "\r\r", 2) == 0)) {
-                    break;  // Delimiter found
+                    break; // Delimiter found
                 }
             }
             if (totalBytesRead >= 4) {
                 if (memcmp(bufferPointer - 4, "\r\n\r\n", 4) == 0) {
-                    break;  // End of HTTP headers
+                    break; // End of HTTP headers
                 }
             }
         }
     }
     if (totalBytesRead < maxBytes) {
-        *bufferPointer = '\0';  // Null-terminate the buffer
+        *bufferPointer = '\0'; // Null-terminate the buffer
     }
 
     return totalBytesRead;
@@ -235,7 +232,7 @@ int main(int argc, char *argv[]) {
 // Function to handle GET requests
 void handleGETRequest(int clientSocket, const char *resourceURI) {
     char filePath[256];
-    strcpy(filePath, resourceURI + 1);  // Remove the leading '/' from the URI to get the file path
+    strcpy(filePath, resourceURI + 1); // Remove the leading '/' from the URI to get the file path
 
     struct stat fileStats;
     if (stat(filePath, &fileStats) < 0) {
@@ -274,7 +271,7 @@ ssize_t my_pass_n_bytes(int sourceFd, int destinationFd, size_t bytesToPass) {
         int readAmount = remainingBytes < BUFFER_SIZE ? remainingBytes : BUFFER_SIZE;
         ssize_t bytesRead = read(sourceFd, transferBuffer, readAmount);
         if (bytesRead <= 0) {
-            return bytesRead;  // Handle errors or end of file
+            return bytesRead; // Handle errors or end of file
         }
         remainingBytes -= bytesRead;
         write_n_bytes(destinationFd, transferBuffer, bytesRead);
@@ -291,7 +288,7 @@ void handlePUTRequest(int clientSocket, const char *resourceURI, int contentLeng
     }
 
     char filePath[256];
-    strcpy(filePath, resourceURI + 1);  // Get the file path from the URI
+    strcpy(filePath, resourceURI + 1); // Get the file path from the URI
 
     struct stat fileStats;
     stat(filePath, &fileStats);
@@ -331,11 +328,9 @@ void handlePUTRequest(int clientSocket, const char *resourceURI, int contentLeng
         write_n_bytes(clientSocket, successMessage, strlen(successMessage));
         close(fileFd);
 
-    } 
-    else {
+    } else {
         char createdMessage[] = "HTTP/1.1 201 Created\r\nContent-Length: 7\r\n\r\nCreated\n";
         write_n_bytes(clientSocket, createdMessage, strlen(createdMessage));
         close(fileFd);
     }
 }
-
