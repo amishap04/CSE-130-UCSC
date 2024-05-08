@@ -20,6 +20,7 @@ void handlePUTRequest(int clientSocket, const char *resourceURI, int contentLeng
 int validateHeaders(const char *headerBuffer);
 ssize_t readUntilDelimiter(int fileDescriptor, char buffer[], size_t maxBytes);
 ssize_t my_pass_n_bytes(int sourceFd, int destinationFd, size_t bytesToPass);
+int isValidHTTPMethod(const char *method);
 
 int64_t getCurrentTimeMillis() {
     struct timeval currentTime;
@@ -67,9 +68,14 @@ ssize_t getFileLength(const char *filePath) {
 
 void processHTTPRequest(int clientSocket, const char *httpMethod, const char *uri,
     const char *httpVersion, const char *requestBuffer) {
+    if (!isValidHTTPMethod(httpMethod)) {
+        write_n_bytes(clientSocket,
+            "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
+        return;
+    }
+
     if (strcmp(httpVersion, "HTTP/1.1") != 0) {
         if (strcmp(httpVersion, "HTTP/1.10") == 0 || strcmp(httpVersion, "HTTP/1.0") == 0) {
-            fprintf(stderr, "Invalid HTTP version\n");
             write_n_bytes(clientSocket,
                 "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
         } else {
@@ -81,21 +87,18 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
         return;
     }
 
-    if (strcmp(httpMethod, "GET") == 0 || strcmp(httpMethod, "PUT") == 0) {
-        if (strcmp(httpMethod, "GET") == 0) {
-            handleGETRequest(clientSocket, uri);
-        } else {
-            char *contentLengthStr = strstr(requestBuffer, "Content-Length: ");
-            if (!contentLengthStr) {
-                fprintf(stderr, "Missing Content-Length header\n");
-                write_n_bytes(clientSocket,
-                    "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
-                return;
-            }
-            int contentLength = 0;
-            sscanf(contentLengthStr, "Content-Length: %d", &contentLength);
-            handlePUTRequest(clientSocket, uri, contentLength);
+    if (strcmp(httpMethod, "GET") == 0) {
+        handleGETRequest(clientSocket, uri);
+    } else if (strcmp(httpMethod, "PUT") == 0) {
+        char *contentLengthStr = strstr(requestBuffer, "Content-Length: ");
+        if (!contentLengthStr) {
+            write_n_bytes(clientSocket,
+                "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
+            return;
         }
+        int contentLength = 0;
+        sscanf(contentLengthStr, "Content-Length: %d", &contentLength);
+        handlePUTRequest(clientSocket, uri, contentLength);
     } else {
         write_n_bytes(clientSocket,
             "HTTP/1.1 501 Not Implemented\r\nContent-Length: 16\r\n\r\nNot Implemented\n", 68);
@@ -206,6 +209,18 @@ int main(int argc, char *argv[]) {
     }
 
     return 0;
+}
+
+int isValidHTTPMethod(const char *method) {
+    const char *validMethods[] = { "GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS" };
+    size_t numMethods = sizeof(validMethods) / sizeof(validMethods[0]);
+
+    for (size_t i = 0; i < numMethods; i++) {
+        if (strcmp(method, validMethods[i]) == 0) {
+            return 1; // Valid method found
+        }
+    }
+    return 0; // No valid method found
 }
 
 void handleGETRequest(int clientSocket, const char *resourceURI) {
