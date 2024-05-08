@@ -70,20 +70,15 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
     const char *httpVersion, const char *requestBuffer) {
     if (!isValidHTTPMethod(httpMethod)) {
         write_n_bytes(clientSocket,
-            "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
+            "HTTP/1.1 501 Not Implemented\r\nContent-Length: 16\r\n\r\nNot Implemented\n", 68);
         return;
     }
 
     if (strcmp(httpVersion, "HTTP/1.1") != 0) {
-        if (strcmp(httpVersion, "HTTP/1.10") == 0 || strcmp(httpVersion, "HTTP/1.0") == 0) {
-            write_n_bytes(clientSocket,
-                "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
-        } else {
-            write_n_bytes(clientSocket,
-                "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\n\r\nVersion Not "
-                "Supported\n",
-                80);
-        }
+        write_n_bytes(clientSocket,
+            "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\n\r\nVersion Not "
+            "Supported\n",
+            80);
         return;
     }
 
