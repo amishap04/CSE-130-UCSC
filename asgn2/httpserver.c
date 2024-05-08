@@ -12,78 +12,68 @@
 #include "asgn2_helper_funcs.h"
 #include <sys/time.h>
 
-#define BUFF_SIZE 4096
+#define BUFFER_SIZE 4096
 
-int64_t currentTimeMillis() {
-    struct timeval time;
-    gettimeofday(&time, NULL);
-    int64_t s1 = (int64_t) (time.tv_sec) * 1000;
-    int64_t s2 = (time.tv_usec / 1000);
-    return s1 + s2;
+// Function prototypes
+void handleGETRequest(int clientSocket, const char *resourceURI);
+void handlePUTRequest(int clientSocket, const char *resourceURI, int contentLength);
+int validateHeaders(const char *headerBuffer);
+ssize_t readUntilDelimiter(int fileDescriptor, char buffer[], size_t maxBytes);
+ssize_t my_pass_n_bytes(int sourceFd, int destinationFd, size_t bytesToPass);
+
+int64_t getCurrentTimeMillis() {
+    struct timeval currentTime;
+    gettimeofday(&currentTime, NULL);
+    return (int64_t) (currentTime.tv_sec) * 1000 + (currentTime.tv_usec / 1000);
 }
 
-void handle_get_request(int client_fd, const char *uri);
-void handle_put_request(int client_fd, const char *uri, int content_length);
-int check_headers(const char *buffer);
+int initializeListener(Listener_Socket *listenerSocket, int listeningPort) {
+    struct sockaddr_in serverAddress;
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_addr.s_addr = INADDR_ANY;
+    serverAddress.sin_port = htons(listeningPort);
+    printf("%ld start", getCurrentTimeMillis());
 
-int listener_init(Listener_Socket *sock, int port) {
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(port);
-    printf("%ld start", currentTimeMillis());
-
-    if ((sock->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((listenerSocket->fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         return -1;
     }
 
-    printf("%ld here", currentTimeMillis());
+    printf("%ld here", getCurrentTimeMillis());
 
-    if (bind(sock->fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+    if (bind(listenerSocket->fd, (struct sockaddr *) &serverAddress, sizeof(serverAddress)) < 0) {
         return -1;
     }
 
-    printf("%ld here now", currentTimeMillis());
+    printf("%ld here now", getCurrentTimeMillis());
 
-    if (listen(sock->fd, 128) < 0) {
+    if (listen(listenerSocket->fd, 128) < 0) {
         return -1;
     }
 
-    printf("%ld final", currentTimeMillis());
+    printf("%ld final", getCurrentTimeMillis());
 
     return 0;
 }
 
-int listener_accept(Listener_Socket *sock) {
-    int connfd = accept(sock->fd, NULL, NULL);
-    return connfd;
+int acceptConnection(Listener_Socket *listenerSocket) {
+    return accept(listenerSocket->fd, NULL, NULL);
 }
 
-void handle_connection(int connfd) {
-    char buf[BUFF_SIZE + 1];
-    write_n_bytes(connfd, buf, BUFF_SIZE);
-    buf[BUFF_SIZE] = '\0';
-    printf("%s", buf);
-
-    close(connfd);
-    return;
+ssize_t getFileLength(const char *filePath) {
+    struct stat fileInfo;
+    stat(filePath, &fileInfo);
+    return fileInfo.st_size;
 }
 
-ssize_t find_length(const char *path) {
-    struct stat file;
-    stat(path, &file);
-    return file.st_size;
-}
-
-void handle_request_based_on_method(
-    int client_fd, const char *method, const char *uri, const char *version, const char *buffer) {
-    if (strcmp(version, "HTTP/1.1") != 0) {
-        if (strcmp(version, "HTTP/1.10") == 0 || strcmp(version, "HTTP/1.0") == 0) {
-            fprintf(stderr, "here loser 4\n");
-            write_n_bytes(client_fd,
+void processHTTPRequest(int clientSocket, const char *httpMethod, const char *uri,
+    const char *httpVersion, const char *requestBuffer) {
+    if (strcmp(httpVersion, "HTTP/1.1") != 0) {
+        if (strcmp(httpVersion, "HTTP/1.10") == 0 || strcmp(httpVersion, "HTTP/1.0") == 0) {
+            fprintf(stderr, "Invalid HTTP version\n");
+            write_n_bytes(clientSocket,
                 "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
         } else {
-            write_n_bytes(client_fd,
+            write_n_bytes(clientSocket,
                 "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\n\r\nVersion Not "
                 "Supported\n",
                 80);
@@ -91,55 +81,49 @@ void handle_request_based_on_method(
         return;
     }
 
-    if (strcmp(method, "GET") == 0 || strcmp(method, "PUT") == 0) {
-        if (strcmp(method, "GET") == 0) {
-            handle_get_request(client_fd, uri);
+    if (strcmp(httpMethod, "GET") == 0 || strcmp(httpMethod, "PUT") == 0) {
+        if (strcmp(httpMethod, "GET") == 0) {
+            handleGETRequest(clientSocket, uri);
         } else {
-            char *content_length_str = strstr(buffer, "Content-Length: ");
-            if (!content_length_str) {
-                fprintf(stderr, "here loser 1\n");
-                write_n_bytes(client_fd,
+            char *contentLengthStr = strstr(requestBuffer, "Content-Length: ");
+            if (!contentLengthStr) {
+                fprintf(stderr, "Missing Content-Length header\n");
+                write_n_bytes(clientSocket,
                     "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
                 return;
             }
-            int content_length = 0;
-            sscanf(content_length_str, "Content-Length: %d", &content_length);
-            handle_put_request(client_fd, uri, content_length);
+            int contentLength = 0;
+            sscanf(contentLengthStr, "Content-Length: %d", &contentLength);
+            handlePUTRequest(clientSocket, uri, contentLength);
         }
     } else {
-        if (strstr(method, "GET")) {
-            write_n_bytes(client_fd,
-                "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
-            return;
-        }
-        write_n_bytes(client_fd,
+        write_n_bytes(clientSocket,
             "HTTP/1.1 501 Not Implemented\r\nContent-Length: 16\r\n\r\nNot Implemented\n", 68);
     }
 }
 
-int check_headers(const char *buffer) {
-    const char *ptr = buffer;
-    while ((ptr = strstr(ptr, "\r\n")) != NULL) {
-        ptr += 2;
-        if (strncmp(ptr, "\r\n", 2) == 0)
+int validateHeaders(const char *buffer) {
+    const char *pointer = buffer;
+    while ((pointer = strstr(pointer, "\r\n")) != NULL) {
+        pointer += 2;
+        if (strncmp(pointer, "\r\n", 2) == 0)
             break;
 
-        const char *colon = strchr(ptr, ':');
-        fprintf(stderr, "%s", colon);
-        if (colon == NULL) {
+        const char *colonPosition = strchr(pointer, ':');
+        if (colonPosition == NULL) {
             return -1;
         }
     }
     return 0;
 }
 
-ssize_t my_read_until(int fd, char buf[], size_t n) {
+ssize_t readUntilDelimiter(int fileDescriptor, char buffer[], size_t maxBytes) {
     size_t bytesRead = 0;
-    size_t totalRead = 0;
-    char *bufPtr = buf;
+    size_t totalBytesRead = 0;
+    char *bufferPointer = buffer;
 
-    while (totalRead < n) {
-        bytesRead = read(fd, bufPtr, 1);
+    while (totalBytesRead < maxBytes) {
+        bytesRead = read(fileDescriptor, bufferPointer, 1);
         if (bytesRead == -1ul) {
             if (errno == EINTR) {
                 bytesRead = 0;
@@ -149,29 +133,29 @@ ssize_t my_read_until(int fd, char buf[], size_t n) {
         } else if (bytesRead == 0) {
             break;
         } else {
-            totalRead += bytesRead;
-            bufPtr += bytesRead;
-            if (totalRead >= 2) {
-                if ((memcmp(bufPtr - 2, "\n\n", 2) == 0) || (memcmp(bufPtr - 2, "\r\r", 2) == 0)) {
+            totalBytesRead += bytesRead;
+            bufferPointer += bytesRead;
+            if (totalBytesRead >= 2) {
+                if ((memcmp(bufferPointer - 2, "\n\n", 2) == 0)
+                    || (memcmp(bufferPointer - 2, "\r\r", 2) == 0)) {
                     break;
                 }
             }
-            if (totalRead >= 4) {
-                if (memcmp(bufPtr - 4, "\r\n\r\n", 4) == 0) {
+            if (totalBytesRead >= 4) {
+                if (memcmp(bufferPointer - 4, "\r\n\r\n", 4) == 0) {
                     break;
                 }
             }
         }
     }
-    if (totalRead < n) {
-        *bufPtr = '\0';
+    if (totalBytesRead < maxBytes) {
+        *bufferPointer = '\0';
     }
 
-    return totalRead;
+    return totalBytesRead;
 }
 
 int main(int argc, char *argv[]) {
-
     if (argc != 2) {
         fprintf(stderr, "Usage: ./httpserver <port>\n");
         return 1;
@@ -184,150 +168,145 @@ int main(int argc, char *argv[]) {
     }
 
     Listener_Socket listener;
-    if (listener_init(&listener, port) != 0) {
-        fprintf(stderr, "Invalid Port\n");
+    if (initializeListener(&listener, port) != 0) {
+        fprintf(stderr, "Failed to initialize listener\n");
         return 1;
     }
 
     while (1) {
-        int client_fd = listener_accept(&listener);
-        if (client_fd < 0) {
+        int clientSocket = acceptConnection(&listener);
+        if (clientSocket < 0) {
             perror("Failed to accept connection");
             continue;
         }
 
-        char buffer[BUFF_SIZE];
-        ssize_t bytes_read = my_read_until(client_fd, buffer, BUFF_SIZE);
-        if (bytes_read <= 0) {
+        char requestBuffer[BUFFER_SIZE];
+        ssize_t bytesRead = readUntilDelimiter(clientSocket, requestBuffer, BUFFER_SIZE);
+        if (bytesRead <= 0) {
             perror("Failed to read from socket");
-            close(client_fd);
+            close(clientSocket);
             continue;
         }
 
-        buffer[bytes_read]
-            = '\0';
+        requestBuffer[bytesRead] = '\0';
 
-        if (check_headers(buffer) != 0) {
-            write_n_bytes(client_fd,
+        if (validateHeaders(requestBuffer) != 0) {
+            write_n_bytes(clientSocket,
                 "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
-            close(client_fd);
+            close(clientSocket);
             continue;
         }
 
-        char method[10], uri[256], version[10];
-        sscanf(buffer, "%s %s %s", method, uri, version);
+        char httpMethod[10], uri[256], httpVersion[10];
+        sscanf(requestBuffer, "%s %s %s", httpMethod, uri, httpVersion);
 
-        handle_request_based_on_method(client_fd, method, uri, version, buffer);
+        processHTTPRequest(clientSocket, httpMethod, uri, httpVersion, requestBuffer);
 
-        close(client_fd);
+        close(clientSocket);
     }
 
     return 0;
 }
 
-void handle_get_request(int client_fd, const char *uri) {
-    char filepath[256];
-    strcpy(filepath, uri + 1);
+void handleGETRequest(int clientSocket, const char *resourceURI) {
+    char filePath[256];
+    strcpy(filePath, resourceURI + 1);
 
-    struct stat path_stat;
-    if (stat(filepath, &path_stat) < 0) {
+    struct stat fileStats;
+    if (stat(filePath, &fileStats) < 0) {
         write_n_bytes(
-            client_fd, "HTTP/1.1 404 Not Found\r\nContent-Length: 10\r\n\r\nNot Found\n", 62);
+            clientSocket, "HTTP/1.1 404 Not Found\r\nContent-Length: 10\r\n\r\nNot Found\n", 62);
         return;
     }
 
-    if (S_ISDIR(path_stat.st_mode)) {
+    if (S_ISDIR(fileStats.st_mode)) {
         write_n_bytes(
-            client_fd, "HTTP/1.1 403 Forbidden\r\nContent-Length: 10\r\n\r\nForbidden\n", 62);
+            clientSocket, "HTTP/1.1 403 Forbidden\r\nContent-Length: 10\r\n\r\nForbidden\n", 62);
         return;
     }
 
-    int file_fd = open(filepath, O_RDONLY);
-    if (file_fd < 0) {
+    int fileFd = open(filePath, O_RDONLY);
+    if (fileFd < 0) {
         write_n_bytes(
-            client_fd, "HTTP/1.1 404 Not Found\r\nContent-Length: 10\r\n\r\nNot Found\n", 62);
+            clientSocket, "HTTP/1.1 404 Not Found\r\nContent-Length: 10\r\n\r\nNot Found\n", 62);
         return;
     }
 
-    ssize_t length = path_stat.st_size;
-    char header[256];
-    sprintf(header, "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\n\r\n", length);
-    write_n_bytes(client_fd, header, strlen(header));
-    pass_n_bytes(file_fd, client_fd, length);
-    close(file_fd);
+    ssize_t contentLength = fileStats.st_size;
+    char responseHeader[256];
+    sprintf(responseHeader, "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\n\r\n", contentLength);
+    write_n_bytes(clientSocket, responseHeader, strlen(responseHeader));
+    my_pass_n_bytes(fileFd, clientSocket, contentLength);
+    close(fileFd);
 }
 
-ssize_t my_pass_n_bytes(int src, int dst, size_t n) {
-    char buffer[BUFF_SIZE];
-    int remaining = n;
+ssize_t my_pass_n_bytes(int sourceFd, int destinationFd, size_t bytesToPass) {
+    char transferBuffer[BUFFER_SIZE];
+    ssize_t remainingBytes = bytesToPass;
 
-    while (remaining > 0) {
-        int to_read = remaining < BUFF_SIZE ? remaining : BUFF_SIZE;
-        int bytes_read = read(src, buffer, to_read);
-        if (bytes_read <= 0) {
-            return bytes_read;
+    while (remainingBytes > 0) {
+        int readAmount = remainingBytes < BUFFER_SIZE ? remainingBytes : BUFFER_SIZE;
+        ssize_t bytesRead = read(sourceFd, transferBuffer, readAmount);
+        if (bytesRead <= 0) {
+            return bytesRead; // Error or EOF
         }
-        remaining -= bytes_read;
-        write_n_bytes(dst, buffer, bytes_read);
+        remainingBytes -= bytesRead;
+        write_n_bytes(destinationFd, transferBuffer, bytesRead);
     }
-    return n;
+    return bytesToPass;
 }
 
-void handle_put_request(int client_fd, const char *uri, int content_length) {
-
-    if (content_length == -1) {
-        write_n_bytes(
-            client_fd, "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
+void handlePUTRequest(int clientSocket, const char *resourceURI, int contentLength) {
+    if (contentLength == -1) {
+        write_n_bytes(clientSocket,
+            "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
         return;
     }
 
-    char filepath[256];
-    strcpy(filepath, uri + 1);
+    char filePath[256];
+    strcpy(filePath, resourceURI + 1);
 
-    struct stat path_stat;
-    stat(filepath, &path_stat);
+    struct stat fileStats;
+    stat(filePath, &fileStats);
 
-    if (S_ISDIR(path_stat.st_mode)) {
+    if (S_ISDIR(fileStats.st_mode)) {
         write_n_bytes(
-            client_fd, "HTTP/1.1 403 Forbidden\r\nContent-Length: 10\r\n\r\nForbidden\n", 64);
+            clientSocket, "HTTP/1.1 403 Forbidden\r\nContent-Length: 10\r\n\r\nForbidden\n", 64);
         return;
     }
 
-    int file_exists = 0;
-    if (access(filepath, F_OK) == 0) {
-        file_exists = 1;
+    int fileExists = 0;
+    if (access(filePath, F_OK) == 0) {
+        fileExists = 1;
     }
     errno = 0;
-    int fd = open(filepath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    int fileFd = open(filePath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 
-    if (fd == -1) {
-        if (fd == -1) {
-            write_n_bytes(client_fd,
-                "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 22\r\n\r\nInternal Server "
-                "Error\n",
-                86);
-            return;
-        }
+    if (fileFd == -1) {
+        write_n_bytes(clientSocket,
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 22\r\n\r\nInternal Server "
+            "Error\n",
+            86);
+        return;
     }
-    int bytes_written = my_pass_n_bytes(client_fd, fd, content_length);
-    if (bytes_written != content_length) {
-        close(fd);
-        write_n_bytes(client_fd,
+    int bytesWritten = my_pass_n_bytes(clientSocket, fileFd, contentLength);
+    if (bytesWritten != contentLength) {
+        close(fileFd);
+        write_n_bytes(clientSocket,
             "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 22\r\n\r\nInternal Server "
             "Error\n",
             86);
         return;
     }
 
-    if (file_exists == 1) {
-        char err[] = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nOK\n";
-        write_n_bytes(client_fd, err, strlen(err));
-        close(fd);
+    if (fileExists == 1) {
+        char successMessage[] = "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nOK\n";
+        write_n_bytes(clientSocket, successMessage, strlen(successMessage));
+        close(fileFd);
 
     } else {
-        char err[] = "HTTP/1.1 201 Created\r\nContent-Length: 7\r\n\r\nCreated\n";
-        write_n_bytes(client_fd, err, strlen(err));
-        close(fd);
+        char createdMessage[] = "HTTP/1.1 201 Created\r\nContent-Length: 7\r\n\r\nCreated\n";
+        write_n_bytes(clientSocket, createdMessage, strlen(createdMessage));
+        close(fileFd);
     }
 }
-
