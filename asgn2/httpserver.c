@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include "asgn2_helper_funcs.h"
 #include <sys/time.h>
+#include <stdbool.h>
+
 
 #define BUFFER_SIZE 4096 // Define a constant for buffer size
 
@@ -20,6 +22,7 @@ void handlePUTRequest(int clientSocket, const char *resourceURI, int contentLeng
 int validateHeaders(const char *headerBuffer);
 ssize_t readUntilDelimiter(int fileDescriptor, char buffer[], size_t maxBytes);
 ssize_t my_pass_n_bytes(int sourceFd, int destinationFd, size_t bytesToPass);
+bool isValidMethod(const char* method);
 
 // Function to get current time in milliseconds
 int64_t getCurrentTimeMillis() {
@@ -73,6 +76,7 @@ ssize_t getFileLength(const char *filePath) {
     return fileInfo.st_size; // Return the size of the file
 }
 
+
 // Function to process HTTP requests
 void processHTTPRequest(int clientSocket, const char *httpMethod, const char *uri,
     const char *httpVersion, const char *requestBuffer) {
@@ -83,10 +87,16 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
                 "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
         } else {
             write_n_bytes(clientSocket,
-                "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\n\r\nVersion Not "
-                "Supported\n",
+                "HTTP/1.1 505 Version Not Supported\r\nContent-Length: 22\r\n\r\nVersion Not Supported\n",
                 80);
         }
+        return;
+    }
+
+    // Validate HTTP method for being a proper token (consists only of uppercase letters)
+    if (!isValidMethod(httpMethod)) {
+        write_n_bytes(clientSocket,
+            "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
         return;
     }
 
@@ -104,11 +114,23 @@ void processHTTPRequest(int clientSocket, const char *httpMethod, const char *ur
         sscanf(contentLengthStr, "Content-Length: %d", &contentLength);
         handlePUTRequest(clientSocket, uri, contentLength);
     } else {
-        // Respond with "400 Bad Request" for unsupported methods
         write_n_bytes(clientSocket,
-            "HTTP/1.1 400 Bad Request\r\nContent-Length: 12\r\n\r\nBad Request\n", 60);
+            "HTTP/1.1 501 Not Implemented\r\nContent-Length: 16\r\n\r\nNot Implemented\n", 68);
     }
 }
+
+// Helper function to validate if a HTTP method is valid (consists only of uppercase letters)
+bool isValidMethod(const char* method) {
+    for (int i = 0; method[i] != '\0'; i++) {
+        if (method[i] < 'A' || method[i] > 'Z') {
+            return false; // Method contains non-uppercase letter
+        }
+    }
+    return true;
+}
+
+
+
 
 // Function to validate the format of HTTP headers
 int validateHeaders(const char *buffer) {
@@ -324,3 +346,4 @@ void handlePUTRequest(int clientSocket, const char *resourceURI, int contentLeng
         close(fileFd);
     }
 }
+
