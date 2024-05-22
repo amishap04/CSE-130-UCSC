@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include "rwlock.h"
 
+
+// structs
 typedef struct rwlock {
     pthread_mutex_t lock;
     pthread_cond_t readers_ok;
@@ -15,6 +17,7 @@ typedef struct rwlock {
     uint32_t n;
 } rwlock_t;
 
+// start of functions
 rwlock_t *rwlock_new(PRIORITY p, uint32_t n) {
     rwlock_t *rw = malloc(sizeof(rwlock_t));
     if (rw == NULL) return NULL;
