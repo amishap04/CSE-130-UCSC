@@ -3,7 +3,6 @@
 #include <stdint.h>
 #include "rwlock.h"
 
-
 // structs
 typedef struct rwlock {
     pthread_mutex_t lock;
@@ -20,7 +19,8 @@ typedef struct rwlock {
 // start of functions
 rwlock_t *rwlock_new(PRIORITY p, uint32_t n) {
     rwlock_t *rw = malloc(sizeof(rwlock_t));
-    if (rw == NULL) return NULL;
+    if (rw == NULL)
+        return NULL;
     pthread_mutex_init(&rw->lock, NULL);
     pthread_cond_init(&rw->readers_ok, NULL);
     pthread_cond_init(&rw->writers_ok, NULL);
@@ -34,7 +34,8 @@ rwlock_t *rwlock_new(PRIORITY p, uint32_t n) {
 }
 
 void rwlock_delete(rwlock_t **l) {
-    if (l == NULL || *l == NULL) return;
+    if (l == NULL || *l == NULL)
+        return;
     pthread_mutex_destroy(&(*l)->lock);
     pthread_cond_destroy(&(*l)->readers_ok);
     pthread_cond_destroy(&(*l)->writers_ok);
@@ -85,5 +86,3 @@ void writer_unlock(rwlock_t *rw) {
     }
     pthread_mutex_unlock(&rw->lock);
 }
-
-

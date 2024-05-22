@@ -16,19 +16,18 @@ struct queue {
 };
 
 queue_t *queue_new(int size) {
-    queue_t *q = (queue_t *)malloc(sizeof(queue_t));
+    queue_t *q = (queue_t *) malloc(sizeof(queue_t));
     if (q) {
         q->size = size;
         q->in = 0;
         q->out = 0;
-        q->buf = (void **)malloc(size * sizeof(void *));
+        q->buf = (void **) malloc(size * sizeof(void *));
         if (!q->buf) {
             free(q);
             return NULL;
         }
-        if (sem_init(&q->full_slots, 0, size) != 0 ||
-            sem_init(&q->empty_slots, 0, 0) != 0 ||
-            pthread_mutex_init(&q->mutex, NULL) != 0) {
+        if (sem_init(&q->full_slots, 0, size) != 0 || sem_init(&q->empty_slots, 0, 0) != 0
+            || pthread_mutex_init(&q->mutex, NULL) != 0) {
             free(q->buf);
             free(q);
             return NULL;
@@ -73,4 +72,3 @@ bool queue_pop(queue_t *q, void **elem) {
     sem_post(&q->full_slots);
     return true;
 }
-
