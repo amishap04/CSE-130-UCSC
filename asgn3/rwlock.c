@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "rwlock.h"
 
-// structs
+// Assuming PRIORITY constants are defined elsewhere
 typedef struct rwlock {
     pthread_mutex_t lock;
     pthread_cond_t readers_ok;
@@ -16,7 +16,6 @@ typedef struct rwlock {
     uint32_t n;
 } rwlock_t;
 
-// start of functions
 rwlock_t *rwlock_new(PRIORITY p, uint32_t n) {
     rwlock_t *rw = malloc(sizeof(rwlock_t));
     if (rw == NULL)
@@ -59,6 +58,8 @@ void reader_unlock(rwlock_t *rw) {
     rw->readers--;
     if (rw->readers == 0 && rw->waiting_writers > 0) {
         pthread_cond_signal(&rw->writers_ok);
+    } else if (rw->readers == 0) {
+        pthread_cond_broadcast(&rw->writers_ok);
     }
     pthread_mutex_unlock(&rw->lock);
 }
@@ -86,3 +87,4 @@ void writer_unlock(rwlock_t *rw) {
     }
     pthread_mutex_unlock(&rw->lock);
 }
+
