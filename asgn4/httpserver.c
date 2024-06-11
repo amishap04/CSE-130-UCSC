@@ -114,8 +114,7 @@ void append_rwlock_node(rwlockHT hashTable, char *uri, rwlock_t *lock) {
         hashTable->head = newNode;
     } else {
         rwlockNodeObj *currNode = hashTable->head;
-        while (currNode->next != NULL) {
-            currNode = currNode->next;
+        for (; currNode->next != NULL; currNode = currNode->next) {
         }
         currNode->next = newNode;
     }
@@ -132,9 +131,9 @@ rwlockHT create_lock_hash_table(void) {
 
 // Function to free all nodes in the hash table
 void free_rwlock_nodes(rwlockHT *lockNode) {
-    rwlockNode node = (*lockNode)->head;
-    while (node != NULL) {
+    for (rwlockNode node = (*lockNode)->head; node != NULL;) {
         rwlockNode nextNode = node->next;
+        free(node->uri);
         free(node);
         node = nextNode;
     }
@@ -155,12 +154,19 @@ rwlock_t *lookup_rwlock(rwlockNode head, char *uri) {
 
 // Function to verify the request method
 int verify_request_method(const char *str) {
-    if (strncmp(str, "GET ", 4) == 0)
-        return 1;
-    else if (strncmp(str, "PUT ", 4) == 0)
-        return 2;
-    else
-        return 0;
+    switch (str[0]) {
+    case 'G':
+        if (strncmp(str, "GET ", 4) == 0) {
+            return 1;
+        }
+        break;
+    case 'P':
+        if (strncmp(str, "PUT ", 4) == 0) {
+            return 2;
+        }
+        break;
+    }
+    return 0;
 }
 
 // Function to verify the HTTP version
