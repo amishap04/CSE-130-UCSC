@@ -1,7 +1,7 @@
 CFLAGS = -Wall -pedantic -Werror -Wextra
 LDFLAGS = -pthread
 
-DEPS = asgn4_helper_funcs.a debug.h queue.h rwlock.h
+DEPS = debug.h queue.h rwlock.h
 
 all: httpserver
 
