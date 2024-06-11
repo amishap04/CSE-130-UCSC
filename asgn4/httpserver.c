@@ -225,7 +225,7 @@ int main(int argc, char **argv) {
     int manualThread = 0;
 
     // Parsing command line options
-    while ((opt = getopt(argc, argv, "t:")) != -1) {
+    for (; (opt = getopt(argc, argv, "t:")) != -1;) {
         if (opt == 't') {
             t = atoi(optarg);
             manualThread = 1;
