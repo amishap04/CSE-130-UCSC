@@ -294,16 +294,19 @@ void handle_connection(int connfd, rwlockHT rwlock_HT) {
 
     if (res != NULL) {
         conn_send_response(conn, res);
+        conn_delete(&conn);
+        return;
+    }
+
+    debug("%s", conn_str(conn));
+    const Request_t *req = conn_get_request(conn);
+
+    if (req == &REQUEST_GET) {
+        handle_get(conn, rwlock_HT);
+    } else if (req == &REQUEST_PUT) {
+        handle_put(conn, rwlock_HT);
     } else {
-        debug("%s", conn_str(conn));
-        const Request_t *req = conn_get_request(conn);
-        if (req == &REQUEST_GET) {
-            handle_get(conn, rwlock_HT);
-        } else if (req == &REQUEST_PUT) {
-            handle_put(conn, rwlock_HT);
-        } else {
-            handle_unsupported(conn);
-        }
+        handle_unsupported(conn);
     }
 
     conn_delete(&conn);
