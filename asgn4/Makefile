@@ -1,39 +1,19 @@
-EXECBIN  = httpserver
-SOURCES  = $(wildcard *.c)
-HEADERS  = $(wildcard *.h)
-OBJECTS  = $(SOURCES:%.c=%.o)
-LIBRARY  = asgn4_helper_funcs.a
-FORMATS  = $(SOURCES:%.c=.format/%.c.fmt) $(HEADERS:%.h=.format/%.h.fmt)
+CFLAGS = -Wall -pedantic -Werror -Wextra
+LDFLAGS = -pthread
 
-CC       = clang
-FORMAT   = clang-format
-CFLAGS   = -Wall -Wpedantic -Werror -Wextra -DDEBUG
+DEPS = asgn4_helper_funcs.a debug.h queue.h rwlock.h
 
-.PHONY: all clean format
+all: httpserver
 
-all: $(EXECBIN)
+httpserver: httpserver.o asgn4_helper_funcs.a
+	$(CC) -o httpserver httpserver.o asgn4_helper_funcs.a $(LDFLAGS)
 
-$(EXECBIN): $(OBJECTS) $(LIBRARY)
-	$(CC) -o $@ $^
-
-%.o : %.c %.h
-	$(CC) $(CFLAGS) -c $<
+httpserver.o: httpserver.c $(DEPS)
+	$(CC) $(CFLAGS) -c httpserver.c
 
 clean:
-	rm -f $(EXECBIN) $(OBJECTS)
+	rm -f httpserver *.o
 
-nuke: clean
-	rm -rf .format
-
-format: $(FORMATS)
-
-.format/%.c.fmt: %.c
-	mkdir -p .format
-	$(FORMAT) -i $<
-	touch $@
-
-.format/%.h.fmt: %.h
-	mkdir -p .format
-	$(FORMAT) -i $<
-	touch $@
+format:
+	clang-format -i -style=file *.[ch]
 
