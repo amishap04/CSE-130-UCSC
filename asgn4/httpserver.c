@@ -176,10 +176,22 @@ int verify_http_version(const char *str) {
 
 // Function to verify the version number
 int verify_version_number(const char *str) {
-    return (str[0] >= '0' && str[0] <= '9' && str[2] >= '0' && str[2] <= '9' && str[1] == '.'
-               && str[3] == '\r' && str[4] == '\n')
-               ? 1
-               : 0;
+    if (str[0] < '0' || str[0] > '9') {
+        return 0;
+    }
+    if (str[1] != '.') {
+        return 0;
+    }
+    if (str[2] < '0' || str[2] > '9') {
+        return 0;
+    }
+    if (str[3] != '\r') {
+        return 0;
+    }
+    if (str[4] != '\n') {
+        return 0;
+    }
+    return 1;
 }
 
 // Function to check if a string contains only alphabetic characters
@@ -195,15 +207,10 @@ bool is_alphabetic(const char *str) {
 
 // Function to check if a string contains alphanumeric characters and some symbols
 bool is_alphanumeric_plus(const char *str) {
-    while (*str) {
-        char current_char = *str;
-        if ((current_char >= 'a' && current_char <= 'z')
-            || (current_char >= 'A' && current_char <= 'Z')
-            || (current_char >= '0' && current_char <= '9')
-            || (current_char == '.' || current_char == '-' || current_char == ' '
-                || current_char == ':')) {
-            str++;
-        } else {
+    for (const char *ptr = str; *ptr != '\0'; ++ptr) {
+        char c = *ptr;
+        if (!(('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9') || c == '.'
+                || c == '-' || c == ' ' || c == ':')) {
             return false;
         }
     }
