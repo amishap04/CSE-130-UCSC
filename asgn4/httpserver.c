@@ -19,8 +19,6 @@
 #include "rwlock.h"
 #include "asgn2_helper_funcs.h"
 
-// end of includes
-
 #define BUFFER_SIZE 2048
 typedef struct Request Request_t;
 
@@ -53,50 +51,17 @@ pthread_mutex_t mutex;
 
 typedef struct Conn conn_t;
 
-// Constructor
 conn_t *conn_new(int connfd);
-
-// Destructor
 void conn_delete(conn_t **conn);
-
-// Parse the data from connection. Checks static correctness (i.e.,
-// that each field fits within our required bounds), but does not
-// check for semantic correctness (e.g., does not check that a URI is
-// not a directory).
 const Response_t *conn_parse(conn_t *conn);
-
-//////////////////////////////////////////////////////////////////////
-// Functions that get stuff we might need elsewhere from a connection
-
-// Return the RequestType from parsing.
 const Request_t *conn_get_request(conn_t *conn);
-
-// Return URI from parsing.
 char *conn_get_uri(conn_t *conn);
-
-// Return the value for the header field named header.  Only
-// implemented for header named "Content-Length" and "Request-Id".
 char *conn_get_header(conn_t *conn, char *header);
-
-//////////////////////////////////////////////////////////////////////
-// Functions that help get data from a connection
-
-// write the data form the connection into the file (fd).
 const Response_t *conn_recv_file(conn_t *conn, int fd);
-
-//////////////////////////////////////////////////////////////////////
-// Functions that help write responses to the client:
-
-// send a message body from the file (fd)
 const Response_t *conn_send_file(conn_t *conn, int fd, uint64_t count);
-
-// send canonical message for a response type
 const Response_t *conn_send_response(conn_t *conn, const Response_t *res);
-
-//Functions for debugging:
 char *conn_str(conn_t *conn);
 
-// Node struct
 typedef struct rwlockNodeObj *rwlockNode;
 
 typedef struct rwlockNodeObj {
@@ -105,7 +70,6 @@ typedef struct rwlockNodeObj {
     rwlockNode next;
 } rwlockNodeObj;
 
-// Hash table that holds Node
 typedef struct rwlockHTObj *rwlockHT;
 
 typedef struct rwlockHTObj {
@@ -113,7 +77,6 @@ typedef struct rwlockHTObj {
     int length;
 } rwlockHTObj;
 
-// Thread that holds Hash table
 typedef struct ThreadObj *Thread;
 
 typedef struct ThreadObj {
@@ -130,68 +93,52 @@ void handle_unsupported(conn_t *);
 
 rwlockNode newRWNode(char *uri, rwlock_t *rwlock) {
     rwlockNode node = malloc(sizeof(rwlockNodeObj));
-
     node->uri = strdup(uri);
     node->rwlock = rwlock;
     node->next = NULL;
-
     return node;
 }
 
 void appendNode(rwlockHT hashTable, char *uri, rwlock_t *lock) {
+    rwlockNodeObj *newNode = newRWNode(uri, lock);
     if (hashTable->length == 0) {
-        rwlockNodeObj *newNode = newRWNode(uri, lock);
         hashTable->head = newNode;
-        hashTable->length++;
     } else {
         rwlockNodeObj *currNode = hashTable->head;
-
         while (currNode->next != NULL) {
             currNode = currNode->next;
         }
-
-        rwlockNodeObj *newNode = newRWNode(uri, lock);
         currNode->next = newNode;
-        hashTable->length++;
     }
+    hashTable->length++;
 }
 
 rwlockHT newlockHT(void) {
     rwlockHT lockNode = malloc(sizeof(rwlockHTObj));
     lockNode->length = 0;
     lockNode->head = NULL;
-
     return lockNode;
 }
 
 void freeNode(rwlockHT *lockNode) {
     rwlockNode node = (*lockNode)->head;
-    for (int i = 0; i < (*lockNode)->length; i++) {
+    while (node != NULL) {
         rwlockNode nextNode = node->next;
         free(node);
         node = nextNode;
     }
-
-    free(lockNode);
+    free(*lockNode);
 }
 
-// from Mitchell's section
 rwlock_t *rwlock_ht_ll_lookup(rwlockNode head, char *uri) {
-
-    if (head == NULL)
-        return NULL;
-
     rwlockNode node = head;
-
     while (node != NULL) {
         if (strcmp(node->uri, uri) == 0) {
             return node->rwlock;
         }
-
         node = node->next;
     }
-
-    return NULL; // no match
+    return NULL;
 }
 
 int verifyMethod(const char *str) {
@@ -204,26 +151,14 @@ int verifyMethod(const char *str) {
 }
 
 int verifyVersion(const char *str) {
-    if (strncmp(str, "HTTP/", 5) == 0)
-        return 1;
-    else
-        return 0;
+    return (strncmp(str, "HTTP/", 5) == 0) ? 1 : 0;
 }
 
 int verifyVersionNum(const char *str) {
-    if (!(str[0] >= '0' && str[0] <= '9' && str[2] >= '0' && str[2] <= '9'))
-        return 0;
-
-    if (str[1] != '.')
-        return 0;
-
-    if (str[3] != '\r')
-        return 0;
-
-    if (str[4] != '\n')
-        return 0;
-
-    return 1;
+    return (str[0] >= '0' && str[0] <= '9' && str[2] >= '0' && str[2] <= '9' && str[1] == '.'
+               && str[3] == '\r' && str[4] == '\n')
+               ? 1
+               : 0;
 }
 
 bool isAlphabetic(const char *str) {
@@ -242,8 +177,8 @@ bool isAlphaPlus(const char *str) {
         if ((current_char >= 'a' && current_char <= 'z')
             || (current_char >= 'A' && current_char <= 'Z')
             || (current_char >= '0' && current_char <= '9')
-            || (current_char == '.' || current_char == '-') || (current_char == ' ')
-            || (current_char == ':')) {
+            || (current_char == '.' || current_char == '-' || current_char == ' '
+                || current_char == ':')) {
             str++;
         } else
             return false;
@@ -251,11 +186,9 @@ bool isAlphaPlus(const char *str) {
     return true;
 }
 
-// from Mitchell's section
 void *worker_thread(void *arg) {
     Thread thread = (Thread) arg;
     queue_t *queue = thread->queue;
-
     while (1) {
         uintptr_t connfd = 0;
         queue_pop(queue, (void **) &connfd);
@@ -273,12 +206,9 @@ int main(int argc, char **argv) {
     int manualThread = 0;
 
     while ((opt = getopt(argc, argv, "t:")) != -1) {
-        switch (opt) {
-        case 't':
+        if (opt == 't') {
             t = atoi(optarg);
             manualThread = 1;
-            break;
-        default: break;
         }
     }
 
@@ -287,7 +217,6 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    // Get port
     if (manualThread)
         port = strtol(argv[3], &endptr, 10);
     else
@@ -311,11 +240,9 @@ int main(int argc, char **argv) {
         threads[i]->id = i;
         threads[i]->rwlockHT = &rwlock_ht;
         threads[i]->queue = queue;
-
         pthread_create(&threads[i]->thread, NULL, worker_thread, threads[i]);
     }
 
-    // dispatcher thread
     while (1) {
         uintptr_t connfd = listener_accept(&sock);
         queue_push(queue, (void *) connfd);
@@ -325,9 +252,7 @@ int main(int argc, char **argv) {
 }
 
 void handle_connection(int connfd, rwlockHT rwlock_HT) {
-
     conn_t *conn = conn_new(connfd);
-
     const Response_t *res = conn_parse(conn);
 
     if (res != NULL) {
@@ -348,9 +273,7 @@ void handle_connection(int connfd, rwlockHT rwlock_HT) {
 }
 
 void handle_get(conn_t *conn, rwlockHT rwlock_HT) {
-
     char *uri = conn_get_uri(conn);
-
     const Response_t *res = NULL;
 
     pthread_mutex_lock(&mutex);
@@ -360,11 +283,11 @@ void handle_get(conn_t *conn, rwlockHT rwlock_HT) {
         lock = rwlock_new(N_WAY, 1);
         appendNode(rwlock_HT, uri, lock);
     }
-    pthread_mutex_unlock(&mutex);
 
+    pthread_mutex_unlock(&mutex);
     reader_lock(lock);
 
-    if (isAlphaPlus(uri) == false) {
+    if (!isAlphaPlus(uri)) {
         res = &RESPONSE_BAD_REQUEST;
         char *req = conn_get_header(conn, "Request-Id");
         if (req == NULL)
@@ -374,7 +297,6 @@ void handle_get(conn_t *conn, rwlockHT rwlock_HT) {
     }
 
     int fd = open(uri, O_RDONLY);
-
     if (fd < 0) {
         if (errno == ENOENT) {
             res = &RESPONSE_NOT_FOUND;
@@ -383,8 +305,7 @@ void handle_get(conn_t *conn, rwlockHT rwlock_HT) {
                 req = "0";
             fprintf(stderr, "GET,/%s,404,%s\n", uri, req);
             goto out;
-        }
-        if (errno == EACCES || errno == EISDIR) {
+        } else if (errno == EACCES || errno == EISDIR) {
             res = &RESPONSE_FORBIDDEN;
             char *req = conn_get_header(conn, "Request-Id");
             if (req == NULL)
@@ -414,7 +335,6 @@ void handle_get(conn_t *conn, rwlockHT rwlock_HT) {
     }
 
     int fileSize = (int) fileStat.st_size;
-
     res = conn_send_file(conn, fd, fileSize);
 
     if (res == NULL) {
@@ -426,7 +346,6 @@ void handle_get(conn_t *conn, rwlockHT rwlock_HT) {
     }
 
     reader_unlock(lock);
-
     close(fd);
     return;
 
@@ -435,21 +354,16 @@ out:
     reader_unlock(lock);
 }
 
-// don't change
 void handle_unsupported(conn_t *conn) {
     debug("handling unsupported request");
-
-    // send responses
     conn_send_response(conn, &RESPONSE_NOT_IMPLEMENTED);
 }
 
 void handle_put(conn_t *conn, rwlockHT rwlock_HT) {
-
     char *uri = conn_get_uri(conn);
     const Response_t *res = NULL;
     debug("handling put request for %s", uri);
 
-    // Check if file already exists before opening it.
     bool existed = access(uri, F_OK) == 0;
     debug("%s existed? %d", uri, existed);
 
@@ -460,11 +374,10 @@ void handle_put(conn_t *conn, rwlockHT rwlock_HT) {
         lock = rwlock_new(N_WAY, 1);
         appendNode(rwlock_HT, uri, lock);
     }
-    pthread_mutex_unlock(&mutex);
 
+    pthread_mutex_unlock(&mutex);
     writer_lock(lock);
 
-    // Open the file..
     int fd = open(uri, O_CREAT | O_TRUNC | O_WRONLY, 0600);
     if (fd < 0) {
         debug("%s: %d", uri, errno);
