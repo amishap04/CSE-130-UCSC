@@ -1,10 +1,11 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <limits.h>
-#include <fcntl.h>
+#include <sys/fcntl.h>
 #include <stdbool.h>
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -12,41 +13,42 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <stdint.h>
-
 #include "debug.h"
 #include "queue.h"
 #include "rwlock.h"
 #include "asgn2_helper_funcs.h"
 
-// Constants and type definitions
 #define BUFFER_SIZE 2048
+
 typedef struct Request {
-    const char *name;
+    char method[12];
 } Request_t;
-
-#define NUM_REQUESTS 3
-const Request_t REQUEST_GET = { "GET" };
-const Request_t REQUEST_PUT = { "PUT" };
-const Request_t REQUEST_UNSUPPORTED = { "UNSUPPORTED" };
-const Request_t *requests[NUM_REQUESTS] = { &REQUEST_GET, &REQUEST_PUT, &REQUEST_UNSUPPORTED };
-
-const char *request_get_str(const Request_t *request) {
-    return request->name;
-}
 
 typedef struct Response {
     uint16_t code;
-    const char *message;
+    char message[64];
 } Response_t;
 
-const Response_t RESPONSE_OK = { 200, "OK" };
-const Response_t RESPONSE_CREATED = { 201, "Created" };
-const Response_t RESPONSE_BAD_REQUEST = { 400, "Bad Request" };
-const Response_t RESPONSE_FORBIDDEN = { 403, "Forbidden" };
-const Response_t RESPONSE_NOT_FOUND = { 404, "Not Found" };
-const Response_t RESPONSE_INTERNAL_SERVER_ERROR = { 500, "Internal Server Error" };
-const Response_t RESPONSE_NOT_IMPLEMENTED = { 501, "Not Implemented" };
-const Response_t RESPONSE_VERSION_NOT_SUPPORTED = { 505, "HTTP Version Not Supported" };
+#define NUM_REQUESTS 3
+
+const Request_t REQUEST_GET = { .method = "GET" };
+const Request_t REQUEST_PUT = { .method = "PUT" };
+const Request_t REQUEST_UNSUPPORTED = { .method = "UNSUPPORTED" };
+const Request_t *requests[NUM_REQUESTS] = { &REQUEST_GET, &REQUEST_PUT, &REQUEST_UNSUPPORTED };
+const Response_t RESPONSE_OK = { .code = 200, .message = "OK" };
+const Response_t RESPONSE_CREATED = { .code = 201, .message = "Created" };
+const Response_t RESPONSE_BAD_REQUEST = { .code = 400, .message = "Bad Request" };
+const Response_t RESPONSE_FORBIDDEN = { .code = 403, .message = "Forbidden" };
+const Response_t RESPONSE_NOT_FOUND = { .code = 404, .message = "Not Found" };
+const Response_t RESPONSE_INTERNAL_SERVER_ERROR
+    = { .code = 500, .message = "Internal Server Error" };
+const Response_t RESPONSE_NOT_IMPLEMENTED = { .code = 501, .message = "Not Implemented" };
+const Response_t RESPONSE_VERSION_NOT_SUPPORTED
+    = { .code = 505, .message = "Version Not Supported" };
+
+const char *request_get_str(const Request_t *request) {
+    return request->method;
+}
 
 uint16_t response_get_code(const Response_t *response) {
     return response->code;
@@ -56,11 +58,10 @@ const char *response_get_message(const Response_t *response) {
     return response->message;
 }
 
-pthread_mutex_t mutex;
+pthread_mutex_t rwlock_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct Conn conn_t;
 
-// Function prototypes
 conn_t *conn_new(int connfd);
 void conn_delete(conn_t **conn);
 const Response_t *conn_parse(conn_t *conn);
@@ -98,364 +99,391 @@ void handle_get(conn_t *, rwlockHT);
 void handle_put(conn_t *, rwlockHT);
 void handle_unsupported(conn_t *);
 
-// Function to create a new rwlock node
 rwlockNode create_rwlock_node(char *uri, rwlock_t *rwlock) {
-    rwlockNode node = malloc(sizeof(rwlockNodeObj));
-    node->uri = strdup(uri);
-    node->rwlock = rwlock;
-    node->next = NULL;
-    return node;
+    rwlockNode newNode;
+    char *duplicateUri;
+    rwlockNodeObj *rwlockObj;
+
+    rwlockObj = malloc(sizeof(rwlockNodeObj));
+    duplicateUri = strdup(uri);
+
+    newNode = rwlockObj;
+    newNode->uri = duplicateUri;
+    newNode->rwlock = rwlock;
+    newNode->next = NULL;
+
+    return newNode;
 }
 
-// Function to append a node to the rwlock hash table
-void append_rwlock_node(rwlockHT hashTable, char *uri, rwlock_t *lock) {
-    rwlockNodeObj *newNode = create_rwlock_node(uri, lock);
-    if (hashTable->length == 0) {
-        hashTable->head = newNode;
+void add_node_to_ht(rwlockHT table, char *uri, rwlock_t *lock) {
+    if (table->length == 0) {
+        rwlockNode firstNode = create_rwlock_node(uri, lock);
+        table->head = firstNode;
+        table->length++;
     } else {
-        rwlockNodeObj *currNode = hashTable->head;
-        for (; currNode->next != NULL; currNode = currNode->next) {
-        }
-        currNode->next = newNode;
+        rwlockNode iterator = table->head;
+        for (; iterator->next != NULL; iterator = iterator->next)
+            ;
+        rwlockNode newNode = create_rwlock_node(uri, lock);
+        iterator->next = newNode;
+        table->length++;
     }
-    hashTable->length++;
 }
 
-// Function to create a new lock hash table
-rwlockHT create_lock_hash_table(void) {
+rwlockHT create_rwlock_ht(void) {
     rwlockHT lockNode = malloc(sizeof(rwlockHTObj));
     lockNode->length = 0;
     lockNode->head = NULL;
     return lockNode;
 }
 
-// Function to free all nodes in the hash table
-void free_rwlock_nodes(rwlockHT *lockNode) {
-    for (rwlockNode node = (*lockNode)->head; node != NULL;) {
-        rwlockNode nextNode = node->next;
-        free(node->uri);
-        free(node);
-        node = nextNode;
+void free_rwlock_ht(rwlockHT *ht) {
+    if (ht == NULL || *ht == NULL) {
+        return;
     }
-    free(*lockNode);
+    rwlockNode current = (*ht)->head;
+    while (current) {
+        rwlockNode temp = current;
+        current = current->next;
+        free(temp->uri);
+        free(temp);
+    }
+    free(*ht);
+    *ht = NULL;
 }
 
-// Function to lookup a rwlock in the hash table linked list
 rwlock_t *lookup_rwlock(rwlockNode head, char *uri) {
-    rwlockNode node = head;
-    while (node != NULL) {
-        if (strcmp(node->uri, uri) == 0) {
-            return node->rwlock;
-        }
-        node = node->next;
+    if (!head) {
+        return NULL;
     }
+
+    rwlockNode current = head;
+    for (rwlockNode iter = current; iter != NULL; iter = iter->next) {
+        if (strcmp(iter->uri, uri) == 0) {
+            return iter->rwlock;
+        }
+    }
+
     return NULL;
 }
 
-// Function to verify the request method
-int verify_request_method(const char *str) {
-    switch (str[0]) {
-    case 'G':
-        if (strncmp(str, "GET ", 4) == 0) {
+int verify_method(const char *method) {
+    const char *get_method = "GET ";
+    const char *put_method = "PUT ";
+
+    for (int i = 0; i < 4; ++i) {
+        if (method[i] != get_method[i]) {
+            break;
+        }
+        if (i == 3) {
             return 1;
         }
-        break;
-    case 'P':
-        if (strncmp(str, "PUT ", 4) == 0) {
+    }
+
+    for (int j = 0; j < 4; ++j) {
+        if (method[j] != put_method[j]) {
+            break;
+        }
+        if (j == 3) {
             return 2;
         }
-        break;
     }
+
     return 0;
 }
 
-// Function to verify the HTTP version
 int verify_http_version(const char *str) {
-    return (strncmp(str, "HTTP/", 5) == 0) ? 1 : 0;
+    if (strncmp(str, "HTTP/", 5) == 0)
+        return 1;
+    else
+        return 0;
 }
 
-// Function to verify the version number
-int verify_version_number(const char *str) {
-    if (str[0] < '0' || str[0] > '9') {
+int verify_version_number(const char *version_str) {
+    const char *ptr = version_str;
+
+    if (!((ptr[0] >= '0' && ptr[0] <= '9') && (ptr[2] >= '0' && ptr[2] <= '9'))) {
         return 0;
     }
-    if (str[1] != '.') {
+    if (ptr[1] != '.') {
         return 0;
     }
-    if (str[2] < '0' || str[2] > '9') {
+    if (ptr[3] != '\r') {
         return 0;
     }
-    if (str[3] != '\r') {
+    if (ptr[4] != '\n') {
         return 0;
     }
-    if (str[4] != '\n') {
-        return 0;
-    }
+
     return 1;
 }
 
-// Function to check if a string contains only alphabetic characters
-bool is_alphabetic(const char *str) {
-    while (*str) {
-        if ((*str >= 'a' && *str <= 'z') || (*str >= 'A' && *str <= 'Z') || *str == ' ')
-            str++;
-        else
-            return false;
-    }
-    return true;
-}
+bool check_alphabetic(const char *input_str) {
+    const char *char_ptr = input_str;
 
-// Function to check if a string contains alphanumeric characters and some symbols
-bool is_alphanumeric_plus(const char *str) {
-    for (const char *ptr = str; *ptr != '\0'; ++ptr) {
-        char c = *ptr;
-        if (!(('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9') || c == '.'
-                || c == '-' || c == ' ' || c == ':')) {
+    for (;;) {
+        char current = *char_ptr;
+        if (current == '\0') {
+            break;
+        }
+
+        if ((current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z')
+            || current == ' ') {
+            char_ptr++;
+        } else {
             return false;
         }
     }
+
     return true;
 }
 
-// Thread worker function
-void *worker_thread(void *arg) {
-    Thread thread = (Thread) arg;
-    queue_t *queue = thread->queue;
-    while (1) {
-        uintptr_t connfd = 0;
-        queue_pop(queue, (void **) &connfd);
-        handle_connection((int) connfd, *thread->rwlockHT);
-        close((int) connfd);
+bool check_alphanumeric(const char *input) {
+    const char *ptr = input;
+
+    for (; *ptr != '\0'; ++ptr) {
+        char character = *ptr;
+        if ((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
+            || (character >= '0' && character <= '9') || (character == '.' || character == '-')
+            || (character == ' ') || (character == ':')) {
+            continue;
+        } else {
+            return false;
+        }
     }
+
+    return true;
+}
+
+void *thread_worker(void *arg) {
+    Thread thread_info = (Thread) arg;
+    queue_t *task_queue = thread_info->queue;
+
+    for (;;) {
+        uintptr_t connection_fd = 0;
+        queue_pop(task_queue, (void **) &connection_fd);
+
+        handle_connection((int) connection_fd, *thread_info->rwlockHT);
+        close((int) connection_fd);
+    }
+
     return NULL;
 }
 
 int main(int argc, char **argv) {
-    char *endptr = NULL;
-    long port = strtol(argv[1], &endptr, 10);
-    int t = 4;
-    int opt;
-    int manualThread = 0;
+    char *end_pointer = NULL;
+    long port_number = strtol(argv[1], &end_pointer, 10);
+    int thread_count = 4;
+    int option;
+    int custom_thread_count = 0;
 
-    // Parsing command line options
-    for (; (opt = getopt(argc, argv, "t:")) != -1;) {
-        if (opt == 't') {
-            t = atoi(optarg);
-            manualThread = 1;
+    while ((option = getopt(argc, argv, "t:")) != -1) {
+        switch (option) {
+        case 't':
+            thread_count = atoi(optarg);
+            custom_thread_count = 1;
+            break;
+        default: break;
         }
     }
 
-    // Checking for valid port number
     if (argc < 2) {
         fprintf(stderr, "usage: %s <port>\n", argv[0]);
         return EXIT_FAILURE;
     }
 
-    if (manualThread)
-        port = strtol(argv[3], &endptr, 10);
+    if (custom_thread_count)
+        port_number = strtol(argv[3], &end_pointer, 10);
     else
-        port = strtol(argv[1], &endptr, 10);
+        port_number = strtol(argv[1], &end_pointer, 10);
 
-    if (port < 1 || port > 65535 || (endptr && *endptr != '\0')) {
+    if (port_number < 1 || port_number > 65535 || (end_pointer && *end_pointer != '\0')) {
         fprintf(stderr, "Invalid Port\n");
         return 1;
     }
 
     signal(SIGPIPE, SIG_IGN);
-    Listener_Socket sock;
-    listener_init(&sock, (int) port);
+    Listener_Socket listener_socket;
+    listener_init(&listener_socket, (int) port_number);
 
-    Thread threads[t];
-    rwlockHT rwlock_ht = create_lock_hash_table();
-    queue_t *queue = queue_new(t);
+    Thread worker_threads[thread_count];
+    rwlockHT rwlock_hash_table = create_rwlock_ht();
+    queue_t *request_queue = queue_new(thread_count);
 
-    // Creating threads
-    for (int i = 0; i < t; i++) {
-        threads[i] = malloc(sizeof(ThreadObj));
-        threads[i]->id = i;
-        threads[i]->rwlockHT = &rwlock_ht;
-        threads[i]->queue = queue;
-        pthread_create(&threads[i]->thread, NULL, worker_thread, threads[i]);
+    for (int thread_index = 0; thread_index < thread_count; thread_index++) {
+        worker_threads[thread_index] = malloc(sizeof(ThreadObj));
+        worker_threads[thread_index]->id = thread_index;
+        worker_threads[thread_index]->rwlockHT = &rwlock_hash_table;
+        worker_threads[thread_index]->queue = request_queue;
+        pthread_create(&worker_threads[thread_index]->thread, NULL, thread_worker,
+            worker_threads[thread_index]);
     }
 
-    // Dispatcher thread to accept connections
     while (1) {
-        uintptr_t connfd = listener_accept(&sock);
-        queue_push(queue, (void *) connfd);
+        uintptr_t connection_fd = listener_accept(&listener_socket);
+        queue_push(request_queue, (void *) connection_fd);
     }
 
     return EXIT_SUCCESS;
 }
 
-// Function to handle an incoming connection
-void handle_connection(int connfd, rwlockHT rwlock_HT) {
-    conn_t *conn = conn_new(connfd);
-    const Response_t *res = conn_parse(conn);
+void handle_connection(int client_fd, rwlockHT rwlock_HT) {
+    conn_t *connection = conn_new(client_fd);
 
-    if (res != NULL) {
-        conn_send_response(conn, res);
-        conn_delete(&conn);
-        return;
-    }
-
-    debug("%s", conn_str(conn));
-    const Request_t *req = conn_get_request(conn);
-
-    if (req == &REQUEST_GET) {
-        handle_get(conn, rwlock_HT);
-    } else if (req == &REQUEST_PUT) {
-        handle_put(conn, rwlock_HT);
+    const Response_t *response = conn_parse(connection);
+    if (response != NULL) {
+        conn_send_response(connection, response);
     } else {
-        handle_unsupported(conn);
-    }
-
-    conn_delete(&conn);
-}
-
-// Function to handle a GET request
-void handle_get(conn_t *conn, rwlockHT rwlock_HT) {
-    char *uri = conn_get_uri(conn);
-    const Response_t *res = NULL;
-
-    pthread_mutex_lock(&mutex);
-    rwlock_t *lock = lookup_rwlock(rwlock_HT->head, uri);
-    if (lock == NULL) {
-        lock = rwlock_new(N_WAY, 1);
-        append_rwlock_node(rwlock_HT, uri, lock);
-    }
-    pthread_mutex_unlock(&mutex);
-    reader_lock(lock);
-
-    if (!is_alphanumeric_plus(uri)) {
-        res = &RESPONSE_BAD_REQUEST;
-        char *req = conn_get_header(conn, "Request-Id");
-        if (req == NULL)
-            req = "0";
-        fprintf(stderr, "GET,/%s,400,%s\n", uri, req);
-        goto out;
-    }
-
-    int fd = open(uri, O_RDONLY);
-    if (fd < 0) {
-        if (errno == ENOENT) {
-            res = &RESPONSE_NOT_FOUND;
-            char *req = conn_get_header(conn, "Request-Id");
-            if (req == NULL)
-                req = "0";
-            fprintf(stderr, "GET,/%s,404,%s\n", uri, req);
-            goto out;
-        } else if (errno == EACCES || errno == EISDIR) {
-            res = &RESPONSE_FORBIDDEN;
-            char *req = conn_get_header(conn, "Request-Id");
-            if (req == NULL)
-                req = "0";
-            fprintf(stderr, "GET,/%s,403,%s\n", uri, req);
-            goto out;
+        const Request_t *request = conn_get_request(connection);
+        if (strcmp(request->method, "GET") == 0) {
+            handle_get(connection, rwlock_HT);
+        } else if (strcmp(request->method, "PUT") == 0) {
+            handle_put(connection, rwlock_HT);
         } else {
-            res = &RESPONSE_INTERNAL_SERVER_ERROR;
-            char *req = conn_get_header(conn, "Request-Id");
-            if (req == NULL)
-                req = "0";
-            fprintf(stderr, "GET,/%s,500,%s\n", uri, req);
-            goto out;
+            handle_unsupported(connection);
         }
     }
 
-    struct stat fileStat;
-    fstat(fd, &fileStat);
+    conn_delete(&connection);
+}
 
-    if (S_ISDIR(fileStat.st_mode)) {
-        res = &RESPONSE_FORBIDDEN;
-        char *req = conn_get_header(conn, "Request-Id");
-        if (req == NULL)
-            req = "0";
-        fprintf(stderr, "GET,/%s,403,%s\n", uri, req);
-        goto out;
+void handle_get(conn_t *connection, rwlockHT hashtable) {
+    char *resource_uri = conn_get_uri(connection);
+    const Response_t *response = NULL;
+    pthread_mutex_lock(&rwlock_mutex);
+    rwlock_t *rw_lock = lookup_rwlock(hashtable->head, resource_uri);
+    if (rw_lock == NULL) {
+        rw_lock = rwlock_new(N_WAY, 1);
+        add_node_to_ht(hashtable, resource_uri, rw_lock);
+    }
+    pthread_mutex_unlock(&rwlock_mutex);
+    reader_lock(rw_lock);
+
+    if (!check_alphanumeric(resource_uri)) {
+        response = &RESPONSE_BAD_REQUEST;
+        char *request_id = conn_get_header(connection, "Request-Id");
+        if (request_id == NULL) {
+            request_id = "0";
+        }
+        fprintf(stderr, "GET,/%s,400,%s\n", resource_uri, request_id);
+        goto finalize;
     }
 
-    int fileSize = (int) fileStat.st_size;
-    res = conn_send_file(conn, fd, fileSize);
+    int file_desc = open(resource_uri, O_RDONLY);
+    if (file_desc < 0) {
+        char *request_id = conn_get_header(connection, "Request-Id");
+        if (request_id == NULL) {
+            request_id = "0";
+        }
 
-    if (res == NULL) {
-        res = &RESPONSE_OK;
-        char *req = conn_get_header(conn, "Request-Id");
-        if (req == NULL)
-            req = "0";
-        fprintf(stderr, "GET,/%s,200,%s\n", uri, req);
+        switch (errno) {
+        case ENOENT:
+            response = &RESPONSE_NOT_FOUND;
+            fprintf(stderr, "GET,/%s,404,%s\n", resource_uri, request_id);
+            break;
+        case EACCES:
+        case EISDIR:
+            response = &RESPONSE_FORBIDDEN;
+            fprintf(stderr, "GET,/%s,403,%s\n", resource_uri, request_id);
+            break;
+        default:
+            response = &RESPONSE_INTERNAL_SERVER_ERROR;
+            fprintf(stderr, "GET,/%s,500,%s\n", resource_uri, request_id);
+            break;
+        }
+        goto finalize;
     }
 
-    reader_unlock(lock);
-    close(fd);
+    struct stat file_info;
+    fstat(file_desc, &file_info);
+    if (S_ISDIR(file_info.st_mode)) {
+        response = &RESPONSE_FORBIDDEN;
+        char *request_id = conn_get_header(connection, "Request-Id");
+        if (request_id == NULL) {
+            request_id = "0";
+        }
+        fprintf(stderr, "GET,/%s,403,%s\n", resource_uri, request_id);
+        goto finalize;
+    }
+
+    int file_size = (int) file_info.st_size;
+    response = conn_send_file(connection, file_desc, file_size);
+    if (response == NULL) {
+        response = &RESPONSE_OK;
+        char *request_id = conn_get_header(connection, "Request-Id");
+        if (request_id == NULL) {
+            request_id = "0";
+        }
+        fprintf(stderr, "GET,/%s,200,%s\n", resource_uri, request_id);
+    }
+
+    reader_unlock(rw_lock);
+    close(file_desc);
     return;
 
-out:
-    conn_send_response(conn, res);
-    reader_unlock(lock);
+finalize:
+    conn_send_response(connection, response);
+    reader_unlock(rw_lock);
 }
 
-// Function to handle unsupported requests
-void handle_unsupported(conn_t *conn) {
-    debug("handling unsupported request");
-    conn_send_response(conn, &RESPONSE_NOT_IMPLEMENTED);
-}
-
-// Function to handle a PUT request
-void handle_put(conn_t *conn, rwlockHT rwlock_HT) {
-    char *uri = conn_get_uri(conn);
-    const Response_t *res = NULL;
-    debug("handling put request for %s", uri);
-
-    bool existed = access(uri, F_OK) == 0;
-    debug("%s existed? %d", uri, existed);
-
-    pthread_mutex_lock(&mutex);
-    rwlock_t *lock = lookup_rwlock(rwlock_HT->head, uri);
-    if (lock == NULL) {
-        lock = rwlock_new(N_WAY, 1);
-        append_rwlock_node(rwlock_HT, uri, lock);
+void handle_put(conn_t *connection, rwlockHT hashTable) {
+    char *resource_uri = conn_get_uri(connection);
+    const Response_t *response = NULL;
+    bool resource_exists = access(resource_uri, F_OK) == 0;
+    pthread_mutex_lock(&rwlock_mutex);
+    rwlock_t *rw_lock = lookup_rwlock(hashTable->head, resource_uri);
+    if (rw_lock == NULL) {
+        rw_lock = rwlock_new(N_WAY, 1);
+        add_node_to_ht(hashTable, resource_uri, rw_lock);
     }
-    pthread_mutex_unlock(&mutex);
-    writer_lock(lock);
+    pthread_mutex_unlock(&rwlock_mutex);
+    writer_lock(rw_lock);
 
-    int fd = open(uri, O_CREAT | O_TRUNC | O_WRONLY, 0600);
-    if (fd < 0) {
-        debug("%s: %d", uri, errno);
-        if (errno == EACCES || errno == EISDIR || errno == ENOENT) {
-            res = &RESPONSE_FORBIDDEN;
-            char *req = conn_get_header(conn, "Request-Id");
-            if (req == NULL)
-                req = "0";
-            fprintf(stderr, "PUT,/%s,403,%s\n", uri, req);
-            goto out;
-        } else {
-            res = &RESPONSE_INTERNAL_SERVER_ERROR;
-            char *req = conn_get_header(conn, "Request-Id");
-            if (req == NULL)
-                req = "0";
-            fprintf(stderr, "PUT,/%s,500,%s\n", uri, req);
-            goto out;
+    int file_descriptor = open(resource_uri, O_CREAT | O_TRUNC | O_WRONLY, 0600);
+    if (file_descriptor < 0) {
+        int error_code = errno;
+        char *request_id = conn_get_header(connection, "Request-Id");
+        if (request_id == NULL) {
+            request_id = "0";
+        }
+
+        switch (error_code) {
+        case EACCES:
+        case EISDIR:
+        case ENOENT:
+            response = &RESPONSE_FORBIDDEN;
+            fprintf(stderr, "PUT,/%s,403,%s\n", resource_uri, request_id);
+            goto cleanup;
+        default:
+            response = &RESPONSE_INTERNAL_SERVER_ERROR;
+            fprintf(stderr, "PUT,/%s,500,%s\n", resource_uri, request_id);
+            goto cleanup;
         }
     }
 
-    res = conn_recv_file(conn, fd);
+    response = conn_recv_file(connection, file_descriptor);
+    if (response == NULL) {
+        char *request_id = conn_get_header(connection, "Request-Id");
+        if (request_id == NULL) {
+            request_id = "0";
+        }
 
-    if (res == NULL && existed) {
-        res = &RESPONSE_OK;
-        char *req = conn_get_header(conn, "Request-Id");
-        if (req == NULL)
-            req = "0";
-        fprintf(stderr, "PUT,/%s,200,%s\n", uri, req);
-    } else if (res == NULL && !existed) {
-        res = &RESPONSE_CREATED;
-        char *req = conn_get_header(conn, "Request-Id");
-        if (req == NULL)
-            req = "0";
-        fprintf(stderr, "PUT,/%s,201,%s\n", uri, req);
+        if (resource_exists) {
+            response = &RESPONSE_OK;
+            fprintf(stderr, "PUT,/%s,200,%s\n", resource_uri, request_id);
+        } else {
+            response = &RESPONSE_CREATED;
+            fprintf(stderr, "PUT,/%s,201,%s\n", resource_uri, request_id);
+        }
     }
 
-    writer_unlock(lock);
-    close(fd);
+    writer_unlock(rw_lock);
+    close(file_descriptor);
 
-out:
-    conn_send_response(conn, res);
+cleanup:
+    conn_send_response(connection, response);
+}
+
+void handle_unsupported(conn_t *conn) {
+    conn_send_response(conn, &RESPONSE_NOT_IMPLEMENTED);
 }
