@@ -20,29 +20,41 @@
 
 // Constants and type definitions
 #define BUFFER_SIZE 2048
-typedef struct Request Request_t;
+typedef struct Request {
+    const char *name;
+} Request_t;
 
 #define NUM_REQUESTS 3
-extern const Request_t REQUEST_GET;
-extern const Request_t REQUEST_PUT;
-extern const Request_t REQUEST_UNSUPPORTED;
-extern const Request_t *requests[NUM_REQUESTS];
+const Request_t REQUEST_GET = { "GET" };
+const Request_t REQUEST_PUT = { "PUT" };
+const Request_t REQUEST_UNSUPPORTED = { "UNSUPPORTED" };
+const Request_t *requests[NUM_REQUESTS] = { &REQUEST_GET, &REQUEST_PUT, &REQUEST_UNSUPPORTED };
 
-const char *request_get_str(const Request_t *);
+const char *request_get_str(const Request_t *request) {
+    return request->name;
+}
 
-typedef struct Response Response_t;
+typedef struct Response {
+    uint16_t code;
+    const char *message;
+} Response_t;
 
-extern const Response_t RESPONSE_OK;
-extern const Response_t RESPONSE_CREATED;
-extern const Response_t RESPONSE_BAD_REQUEST;
-extern const Response_t RESPONSE_FORBIDDEN;
-extern const Response_t RESPONSE_NOT_FOUND;
-extern const Response_t RESPONSE_INTERNAL_SERVER_ERROR;
-extern const Response_t RESPONSE_NOT_IMPLEMENTED;
-extern const Response_t RESPONSE_VERSION_NOT_SUPPORTED;
+const Response_t RESPONSE_OK = { 200, "OK" };
+const Response_t RESPONSE_CREATED = { 201, "Created" };
+const Response_t RESPONSE_BAD_REQUEST = { 400, "Bad Request" };
+const Response_t RESPONSE_FORBIDDEN = { 403, "Forbidden" };
+const Response_t RESPONSE_NOT_FOUND = { 404, "Not Found" };
+const Response_t RESPONSE_INTERNAL_SERVER_ERROR = { 500, "Internal Server Error" };
+const Response_t RESPONSE_NOT_IMPLEMENTED = { 501, "Not Implemented" };
+const Response_t RESPONSE_VERSION_NOT_SUPPORTED = { 505, "HTTP Version Not Supported" };
 
-uint16_t response_get_code(const Response_t *);
-const char *response_get_message(const Response_t *);
+uint16_t response_get_code(const Response_t *response) {
+    return response->code;
+}
+
+const char *response_get_message(const Response_t *response) {
+    return response->message;
+}
 
 pthread_mutex_t mutex;
 
@@ -158,8 +170,10 @@ int verify_http_version(const char *str) {
 
 // Function to verify the version number
 int verify_version_number(const char *str) {
-    return (str[0] >= '0' && str[0] <= '9' && str[2] >= '0' && str[2] <= '9' &&
-            str[1] == '.' && str[3] == '\r' && str[4] == '\n') ? 1 : 0;
+    return (str[0] >= '0' && str[0] <= '9' && str[2] >= '0' && str[2] <= '9' && str[1] == '.'
+               && str[3] == '\r' && str[4] == '\n')
+               ? 1
+               : 0;
 }
 
 // Function to check if a string contains only alphabetic characters
@@ -177,9 +191,11 @@ bool is_alphabetic(const char *str) {
 bool is_alphanumeric_plus(const char *str) {
     while (*str) {
         char current_char = *str;
-        if ((current_char >= 'a' && current_char <= 'z') || (current_char >= 'A' && current_char <= 'Z') ||
-            (current_char >= '0' && current_char <= '9') || (current_char == '.' || current_char == '-' || 
-            current_char == ' ' || current_char == ':')) {
+        if ((current_char >= 'a' && current_char <= 'z')
+            || (current_char >= 'A' && current_char <= 'Z')
+            || (current_char >= '0' && current_char <= '9')
+            || (current_char == '.' || current_char == '-' || current_char == ' '
+                || current_char == ':')) {
             str++;
         } else {
             return false;
@@ -190,13 +206,13 @@ bool is_alphanumeric_plus(const char *str) {
 
 // Thread worker function
 void *worker_thread(void *arg) {
-    Thread thread = (Thread)arg;
+    Thread thread = (Thread) arg;
     queue_t *queue = thread->queue;
     while (1) {
         uintptr_t connfd = 0;
-        queue_pop(queue, (void **)&connfd);
-        handle_connection((int)connfd, *thread->rwlockHT);
-        close((int)connfd);
+        queue_pop(queue, (void **) &connfd);
+        handle_connection((int) connfd, *thread->rwlockHT);
+        close((int) connfd);
     }
     return NULL;
 }
@@ -234,7 +250,7 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
     Listener_Socket sock;
-    listener_init(&sock, (int)port);
+    listener_init(&sock, (int) port);
 
     Thread threads[t];
     rwlockHT rwlock_ht = create_lock_hash_table();
@@ -252,7 +268,7 @@ int main(int argc, char **argv) {
     // Dispatcher thread to accept connections
     while (1) {
         uintptr_t connfd = listener_accept(&sock);
-        queue_push(queue, (void *)connfd);
+        queue_push(queue, (void *) connfd);
     }
 
     return EXIT_SUCCESS;
@@ -341,7 +357,7 @@ void handle_get(conn_t *conn, rwlockHT rwlock_HT) {
         goto out;
     }
 
-    int fileSize = (int)fileStat.st_size;
+    int fileSize = (int) fileStat.st_size;
     res = conn_send_file(conn, fd, fileSize);
 
     if (res == NULL) {
@@ -427,4 +443,3 @@ void handle_put(conn_t *conn, rwlockHT rwlock_HT) {
 out:
     conn_send_response(conn, res);
 }
-
